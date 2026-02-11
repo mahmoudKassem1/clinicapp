@@ -26,10 +26,10 @@ const DashboardLayout = () => {
   const isArabic = language === 'ar';
 
   const navTabs = [
-    { id: 'overview', label: t.overview, path: '/dashboard/overview' },
-    { id: 'book', label: t.bookAppointment, path: '/dashboard/book' },
-    { id: 'records', label: t.medicalRecords, path: '/dashboard/records' },
-    { id: 'about', label: t.about, path: '/dashboard/about' },
+    { id: 'overview', label: t.overview, path: '/patient/dashboard' },
+    { id: 'book', label: t.bookAppointment, path: '/patient/book' },
+    { id: 'records', label: t.medicalRecords, path: '/patient/records' },
+    { id: 'about', label: t.about, path: '/patient/about' },
   ];
 
   return (

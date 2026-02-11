@@ -53,7 +53,7 @@ const ResetPassword = () => {
         const toastId = toast.loading(t.processing);
 
         try {
-            await api.patch(`/api/users/resetPassword/${token}`, { password, passwordConfirm });
+            await api.patch(`/users/resetPassword/${token}`, { password, passwordConfirm });
             toast.success(t.success, { id: toastId });
             setTimeout(() => {
                 navigate('/login');

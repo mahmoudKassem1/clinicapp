@@ -1,11 +1,11 @@
 import React, { useContext, useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LanguageContext } from '../patient/LanguageContext';
-import { Search, Calendar, Phone, Clock, XCircle, Filter } from 'lucide-react';
+import { Search, Calendar, Phone, Clock, XCircle, Filter, Loader2 } from 'lucide-react';
 import DoctorNavbar from './DoctorNavbar'; 
 import { Toaster, toast } from 'react-hot-toast';
 
-// ✅ FIXED: Using Named Imports to prevent crashes
+// ✅ Using Named Imports from your doctorApi
 import { getDoctorAppointments, updateAppointment } from './doctorApi';
 
 const DoctorAppointmentsPage = () => {
@@ -29,10 +29,13 @@ const DoctorAppointmentsPage = () => {
       upcoming: 'Upcoming',
       completed: 'Completed',
       cancelled: 'Cancelled',
-      viewDetails: 'View Patient Record', // Updated label for clarity
+      viewDetails: 'View Patient Record',
       cancelAppointment: 'Cancel Appointment',
       appointmentCancelled: 'Appointment Cancelled',
       loading: 'Loading appointments...',
+      confirmCancel: 'Are you sure you want to cancel this appointment?',
+      cancelling: 'Cancelling...',
+      cancelError: 'Failed to cancel appointment.'
     },
     ar: {
       title: 'جميع المواعيد',
@@ -42,10 +45,13 @@ const DoctorAppointmentsPage = () => {
       upcoming: 'قادم',
       completed: 'مكتمل',
       cancelled: 'ملغي',
-      viewDetails: 'عرض سجل المريض', // Updated label for clarity
+      viewDetails: 'عرض سجل المريض',
       cancelAppointment: 'إلغاء الموعد',
-      appointmentCancelled: 'تم إلغاء الموعد',
+      appointmentCancelled: 'تم إلغاء الموعد بنجاح',
       loading: 'جاري تحميل المواعيد...',
+      confirmCancel: 'هل أنت متأكد من إلغاء هذا الموعد؟',
+      cancelling: 'جاري الإلغاء...',
+      cancelError: 'فشل في إلغاء الموعد'
     }
   };
   const t = translations[language];
@@ -54,111 +60,104 @@ const DoctorAppointmentsPage = () => {
   useEffect(() => {
     const fetchAppointments = async () => {
       try {
-        const data = await getDoctorAppointments();
-        setAppointments(Array.isArray(data) ? data : []);
+        const response = await getDoctorAppointments();
+        const data = Array.isArray(response) ? response : (response?.data || []);
+        setAppointments(data);
       } catch (error) {
-        console.error("Failed to fetch appointments:", error);
-        toast.error("Failed to load appointments.");
+        console.error("Fetch error:", error);
+        toast.error(isArabic ? "فشل تحميل المواعيد" : "Failed to load appointments.");
       } finally {
         setLoading(false);
       }
     };
-
     fetchAppointments();
-  }, []);
+  }, [isArabic]);
 
-  // --- 2. Cancel Action ---
+  // --- 2. Cancel Action with React Hot Toast Promise ---
   const handleCancel = async (id) => {
-    if (window.confirm("Are you sure you want to cancel this appointment?")) {
-      try {
-        await updateAppointment(id, { status: 'cancelled' });
-        toast.success(t.appointmentCancelled);
-        
-        // Optimistic Update
-        setAppointments(prev =>
-          prev.map(apt => apt._id === id ? { ...apt, status: 'cancelled' } : apt)
-        );
-      } catch (error) {
-        console.error("Failed to cancel appointment:", error);
-        toast.error("Failed to cancel appointment.");
-      }
-    }
+    if (!window.confirm(t.confirmCancel)) return;
+
+    // We define the promise logic
+    const cancelAction = async () => {
+      await updateAppointment(id, { status: 'cancelled' });
+      
+      // Update local state if successful
+      setAppointments(prev =>
+        prev.map(apt => apt._id === id ? { ...apt, status: 'cancelled' } : apt)
+      );
+    };
+
+    // Trigger the toast promise
+    toast.promise(cancelAction(), {
+      loading: t.cancelling,
+      success: t.appointmentCancelled,
+      error: t.cancelError,
+    });
   };
 
   // --- 3. Filtering Logic ---
   const filteredAppointments = useMemo(() => {
     let result = appointments;
 
-    // A. Filter by Status Tab
     if (statusFilter !== 'all') {
       result = result.filter(apt => (apt.status || 'upcoming').toLowerCase() === statusFilter);
     }
 
-    // B. Filter by Search Query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter(apt => {
-        // Robust checks in case patientId is missing or unpopulated
         const name = apt.patientId?.username || apt.patientId?.name || 'Unknown';
         const phone = apt.patientId?.phone || '';
         const date = apt.date || '';
-        
-        return (
-          name.toLowerCase().includes(query) ||
-          phone.includes(query) ||
-          date.includes(query)
-        );
+        return name.toLowerCase().includes(query) || phone.includes(query) || date.includes(query);
       });
     }
 
-    // C. Sort (Newest First)
-    return result.sort((a, b) => new Date(b.date) - new Date(a.date));
+    return [...result].sort((a, b) => new Date(b.date) - new Date(a.date));
   }, [searchQuery, statusFilter, appointments]);
 
-  // --- Helper: Status Badge Classes ---
   const getStatusClasses = (status) => {
     switch (status?.toLowerCase()) {
-      case 'upcoming': return 'text-green-600 bg-green-50 border-green-200';
-      case 'completed': return 'text-blue-600 bg-blue-50 border-blue-200';
-      case 'cancelled': return 'text-red-600 bg-red-50 border-red-200';
-      default: return 'text-gray-600 bg-gray-50 border-gray-200';
+      case 'upcoming': return 'text-emerald-600 bg-emerald-50 border-emerald-100';
+      case 'completed': return 'text-blue-600 bg-blue-50 border-blue-100';
+      case 'cancelled': return 'text-rose-600 bg-rose-50 border-rose-100';
+      default: return 'text-slate-600 bg-slate-50 border-slate-100';
     }
   };
 
   return (
-    <div className={`min-h-screen bg-slate-50 ${isArabic ? 'font-arabic' : ''}`} dir={isArabic ? 'rtl' : 'ltr'}>
-      <Toaster position="top-center" reverseOrder={false} />
+    <div className={`min-h-screen bg-[#F8FAFC] ${isArabic ? 'font-arabic' : ''}`} dir={isArabic ? 'rtl' : 'ltr'}>
+      <Toaster position="top-center" />
       <DoctorNavbar />
       
-      <div className="container mx-auto p-4 sm:p-6">
-        <header className="my-6">
-          <h1 className="text-3xl font-black text-slate-800 tracking-tight">{t.title}</h1>
+      <div className="max-w-7xl mx-auto p-4 sm:p-8">
+        <header className="mb-8">
+          <h1 className="text-4xl font-black text-slate-900 tracking-tight">{t.title}</h1>
+          <p className="text-slate-500 font-medium mt-1">{filteredAppointments.length} {isArabic ? 'مواعيد مسجلة' : 'records found'}</p>
         </header>
 
         {/* --- Controls Section --- */}
-        <div className="flex flex-col md:flex-row gap-4 mb-8">
-          {/* Search Bar */}
+        <div className="flex flex-col lg:flex-row gap-4 mb-10">
           <div className="relative flex-grow">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t.searchPlaceholder}
-              className={`w-full p-3 rounded-xl bg-white border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all outline-none shadow-sm ${isArabic ? 'pr-10' : 'pl-10'}`}
+              className={`w-full p-4 rounded-2xl bg-white border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all outline-none shadow-sm ${isArabic ? 'pr-12' : 'pl-12'}`}
             />
-            <Search size={20} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isArabic ? 'right-3' : 'left-3'}`} />
+            <Search size={20} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isArabic ? 'right-4' : 'left-4'}`} />
           </div>
 
-          {/* Filter Tabs */}
-          <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+          <div className="flex bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto no-scrollbar">
             {['all', 'upcoming', 'completed', 'cancelled'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setStatusFilter(tab)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all capitalize whitespace-nowrap ${
+                className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all capitalize whitespace-nowrap ${
                   statusFilter === tab 
-                    ? 'bg-blue-600 text-white shadow-md' 
-                    : 'text-slate-600 hover:bg-slate-50'
+                    ? 'bg-slate-900 text-white shadow-lg' 
+                    : 'text-slate-500 hover:bg-slate-50'
                 }`}
               >
                 {t[tab]}
@@ -169,76 +168,74 @@ const DoctorAppointmentsPage = () => {
 
         {/* --- Appointments List --- */}
         {loading ? (
-          <div className="text-center py-12">
-            <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
-            <p className="text-slate-500">{t.loading}</p>
+          <div className="flex flex-col items-center justify-center py-24">
+            <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-4" />
+            <p className="text-slate-400 font-black tracking-widest uppercase text-xs">{t.loading}</p>
           </div>
         ) : filteredAppointments.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {filteredAppointments.map(apt => {
               const dateObj = new Date(apt.date);
               const status = apt.status || 'upcoming';
-              const patientName = apt.patientId?.username || apt.patientId?.name || 'Unknown';
+              const patientName = apt.patientId?.username || apt.patientId?.name || 'Unknown Patient';
 
               return (
-                <div key={apt._id} className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-all group">
+                <div key={apt._id} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-xl hover:shadow-blue-500/5 transition-all group flex flex-col">
                   
-                  {/* Card Header */}
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h3 className="text-lg font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
+                  <div className="flex justify-between items-start mb-6">
+                    <div className="flex-1">
+                      <h3 className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition-colors truncate">
                         {patientName}
                       </h3>
-                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold uppercase mt-1 border ${getStatusClasses(status)}`}>
+                      <span className={`inline-block px-3 py-1 rounded-lg text-[10px] font-black uppercase mt-2 border ${getStatusClasses(status)}`}>
                         {t[status] || status}
                       </span>
                     </div>
-                    <div className="text-right">
-                      <div className="flex items-center gap-1.5 text-slate-600 font-mono font-medium bg-slate-50 px-2 py-1 rounded">
-                        <Clock size={14} />
-                        {dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    <div className={`flex items-center gap-2 text-slate-900 font-black bg-slate-50 px-3 py-2 rounded-xl text-sm border border-slate-100`}>
+                       <Clock size={14} className="text-blue-600" />
+                       {dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 mb-8">
+                    <div className="flex items-center gap-3 text-slate-500">
+                      <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
+                         <Calendar size={16} />
                       </div>
+                      <span className="font-bold text-sm">{dateObj.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-slate-500">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
+                         <Phone size={16} />
+                      </div>
+                      <span className="font-bold text-sm">{apt.patientId?.phone || '---'}</span>
                     </div>
                   </div>
 
-                  {/* Card Info */}
-                  <div className="space-y-2 text-sm text-slate-500 mb-6">
-                    <div className="flex items-center gap-2">
-                      <Calendar size={15} />
-                      <span>{dateObj.toLocaleDateString()}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Phone size={15} />
-                      <span>{apt.patientId?.phone || 'No Phone'}</span>
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex gap-2 pt-4 border-t border-slate-50">
+                  <div className="flex gap-3 mt-auto">
                     <button
                       onClick={() => {
-                      const patientId = apt.patientId?._id;
-                      if (patientId) {
-                          // ✅ PASS APPOINTMENT ID IN STATE
+                        const patientId = apt.patientId?._id;
+                        if (patientId) {
                           navigate(`/doctor/patient-record-details/${patientId}`, { 
-                              state: { appointmentId: apt._id } 
+                            state: { appointmentId: apt._id } 
                           });
-                      } else {
-                          toast.error("Patient details missing.");
-                      }
-                    }}
-                    className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors"
-                  >
-                    {t.viewDetails}
-                  </button>
+                        } else {
+                          toast.error(isArabic ? "بيانات المريض ناقصة" : "Patient details missing.");
+                        }
+                      }}
+                      className="flex-1 bg-slate-900 text-white py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-600 transition-all shadow-lg shadow-slate-200"
+                    >
+                      {t.viewDetails}
+                    </button>
                     
                     {status === 'upcoming' && (
                       <button
                         onClick={() => handleCancel(apt._id)}
-                        className="p-2 text-red-500 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                        className="w-12 flex items-center justify-center text-rose-500 bg-rose-50 rounded-2xl hover:bg-rose-500 hover:text-white transition-all"
                         title={t.cancelAppointment}
                       >
-                        <XCircle size={20} />
+                        <XCircle size={22} />
                       </button>
                     )}
                   </div>
@@ -247,9 +244,9 @@ const DoctorAppointmentsPage = () => {
             })}
           </div>
         ) : (
-          <div className="text-center py-16 bg-white rounded-xl border border-slate-100 border-dashed">
-            <Filter size={48} className="mx-auto text-slate-200 mb-4" />
-            <p className="text-slate-400 font-medium">{t.noAppointmentsFound}</p>
+          <div className="text-center py-24 bg-white rounded-[3rem] border-2 border-slate-100 border-dashed">
+            <Filter size={64} className="mx-auto text-slate-100 mb-6" />
+            <p className="text-slate-400 font-black uppercase tracking-widest text-sm">{t.noAppointmentsFound}</p>
           </div>
         )}
       </div>

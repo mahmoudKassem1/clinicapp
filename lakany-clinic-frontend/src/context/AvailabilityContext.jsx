@@ -1,39 +1,40 @@
-import React, { useState, useMemo } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
+import axios from 'axios';
 
-const AvailabilityContext = React.createContext(null);
+const AvailabilityContext = createContext();
+export const useAvailability = () => useContext(AvailabilityContext);
 
 export const AvailabilityProvider = ({ children }) => {
-  const [isDoctorAvailable, setIsDoctorAvailable] = useState(true); // Global availability state
-  const [broadcastMessage, setBroadcastMessage] = useState(null); // For a simple banner
+  const [availability, setAvailability] = useState(true);
+  const [loading, setLoading] = useState(true);
 
-  const toggleAvailability = (available) => {
-    setIsDoctorAvailable(available);
-    // Clear any previous broadcast message when availability changes
-    setBroadcastMessage(null);
-  };
+  const fetchAvailability = useCallback(async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('token');
+      
+      // Setup config - only add Authorization if token exists
+      const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
 
-  // Simulate a global toast/banner for patients
-  const broadcast = (message, type = 'info') => {
-    // In a real app, this would use a toast library or WebSocket to notify clients
-    console.log(`BROADCAST (${type.toUpperCase()}): ${message}`);
-    setBroadcastMessage({ message, type }); // For display as a simple banner on this page
-    // A more robust solution would involve a global state or event emitter
-    // that patient-side components listen to.
-    alert(`Broadcast to patients: ${message}`); // Simple alert for demonstration
-  };
+      const response = await axios.get('http://localhost:5000/api/appointments/clinic-status', config);
+      
+      // Adjust based on your actual API response structure
+      setAvailability(response.data?.data?.isAvailable ?? response.data?.isAvailable ?? true);
+    } catch (error) {
+      console.warn("Availability check failed:", error.response?.status === 401 ? "Unauthorized" : error.message);
+      setAvailability(true); // Fallback
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const contextValue = useMemo(() => ({
-    isDoctorAvailable, 
-    toggleAvailability, 
-    broadcast, 
-    broadcastMessage
-  }), [isDoctorAvailable, broadcastMessage]);
+  useEffect(() => {
+    fetchAvailability();
+  }, [fetchAvailability]);
 
   return (
-    <AvailabilityContext.Provider value={contextValue}>
+    <AvailabilityContext.Provider value={{ availability, setAvailability, fetchAvailability, loading }}>
       {children}
     </AvailabilityContext.Provider>
   );
 };
-
-export default AvailabilityContext;

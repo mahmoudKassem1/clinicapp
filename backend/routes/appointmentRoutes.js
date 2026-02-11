@@ -1,53 +1,61 @@
 const express = require('express');
-const {
-    getAvailableSlots,
-    createAppointment,
-    getAllAppointments,
-    getDoctorAppointments, // This is for Daily (Dashboard)
-    getDoctorSchedule,     // ✅ NEW IMPORT: This is for All Appointments (Tab)
-    getMyAppointments,
-    updateAppointment,
-    getAppointment
-} = require('../controllers/appointmentController');
-
 const router = express.Router();
+const appointmentController = require('../controllers/appointmentController');
+const authController = require('../controllers/authController');
 
-const { protect, restrictTo } = require('../controllers/authController');
+// --- PUBLIC ROUTES ---
+router.get('/clinic-status', appointmentController.getClinicStatus);
 
-// 1. Public/Open Routes
-router.get('/available-slots', getAvailableSlots);
+// All routes below this line require a valid login token
+router.use(authController.protect);
 
-// 2. Protected Routes
-router
-    .route('/')
-    .post(protect, restrictTo('patient', 'management'), createAppointment);
+// 1. Management specific routes (Must be above /:id)
+router.get(
+    '/all', 
+    authController.restrictTo('management', 'admin', 'doctor'), 
+    appointmentController.getAllAppointments
+);
 
-router
-    .route('/all')
-    .get(protect, restrictTo('management', 'doctor'), getAllAppointments);
+router.get(
+    '/doctor-schedule',
+    authController.restrictTo('doctor'),
+    appointmentController.getDoctorSchedule
+);
 
-// --- DOCTOR ROUTES ---
+router.patch(
+    '/:id/finalize', 
+    authController.restrictTo('management', 'admin', 'doctor'), 
+    appointmentController.finalizeAppointment
+);
 
-// Route 1: Dashboard (Today's appointments)
-router
-    .route('/doctor-daily')
-    .get(protect, restrictTo('doctor'), getDoctorAppointments);
+router.patch(
+    '/:id/no-show',
+    authController.restrictTo('management', 'admin', 'doctor'),
+    appointmentController.handleNoShow
+);
 
-// Route 2: ✅ NEW ROUTE (Fixes the 500 Error)
-// MUST be placed BEFORE '/:id'
-router
-    .route('/doctor-schedule')
-    .get(protect, restrictTo('doctor'), getDoctorSchedule);
+// 2. Patient specific routes
+router.get(
+    '/my-appointments',
+    authController.restrictTo('patient'),
+    appointmentController.getMyAppointments
+);
 
-// --- PATIENT ROUTES ---
-router
-    .route('/my-appointments')
-    .get(protect, restrictTo('patient'), getMyAppointments);
+router.put(
+    '/cancel/:id',
+    authController.restrictTo('patient'),
+    appointmentController.cancelAppointment
+);
 
-// --- DYNAMIC ID ROUTES (Always Last) ---
-router
-    .route('/:id')
-    .get(protect, getAppointment)
-    .patch(protect, restrictTo('doctor', 'management'), updateAppointment);
+// 3. General CRUD routes
+router.post('/', appointmentController.createAppointment);
+router.get('/available-slots', appointmentController.getAvailableSlots);
+router.get('/:id', appointmentController.getAppointment);
+router.patch(
+    '/:id',
+    authController.restrictTo('management', 'doctor'),
+    appointmentController.updateAppointment
+);
+
 
 module.exports = router;

@@ -1,64 +1,53 @@
 const express = require('express');
 const morgan = require('morgan');
 const cors = require('cors');
-const helmet = require('helmet');
-const xss = require('xss-clean');
-const hpp = require('hpp');
-const mongoSanitize = require('express-mongo-sanitize');
-const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
-const errorHandler = require('./middleware/errorHandler');
 
-// Route files
-const patientRoutes = require('./routes/patientRoutes');
-const enterpriseRoutes = require('./routes/enterpriseRoutes');
-const appointmentRoutes = require('./routes/appointmentRoutes');
-const userRoutes = require('./routes/userRoutes');
+const appointmentRouter = require('./routes/appointmentRoutes');
+const userRouter = require('./routes/userRoutes');
+const enterpriseRouter = require('./routes/enterpriseRoutes');
+const patientRouter = require('./routes/patientRoutes');
+const adminRouter = require('./routes/adminRoutes');
 
 const app = express();
 
-// Body parser
-app.use(express.json());
+// --- GLOBAL MIDDLEWARES ---
 
-// Cookie parser
-app.use(cookieParser());
-
-// Dev logging middleware
-if (process.env.NODE_ENV === 'development') {
-    app.use(morgan('dev'));
-}
-
-// Sanitize data to prevent NoSQL injection
-app.use(mongoSanitize());
-
-// Set security headers
-app.use(helmet());
-
-// Prevent XSS attacks
-app.use(xss());
-
-// Rate limiting
-const limiter = rateLimit({
-    windowMs: 10 * 60 * 1000, // 10 mins
-    max: 100
-});
-app.use(limiter);
-
-// Prevent http param pollution
-app.use(hpp());
-
-// Enable CORS
+// Allow Frontend access and Authorization headers
 app.use(cors({
-    origin: process.env.CLIENT_URL,
-    credentials: true
+    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'PUT', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Mount routers
-app.use('/api/patient', patientRoutes);
-app.use('/api/enterprise', enterpriseRoutes);
-app.use('/api/appointments', appointmentRoutes);
-app.use('/api/users', userRoutes);
+if (process.env.NODE_ENV === 'development') app.use(morgan('dev'));
 
-app.use(errorHandler);
+app.use(express.json({ limit: '10kb' }));
+app.use(cookieParser());
+
+// --- ROUTES ---
+app.use('/api/appointments', appointmentRouter);
+app.use('/api/users', userRouter);
+app.use('/api/enterprise', enterpriseRouter);
+app.use('/api/patient', patientRouter);
+app.use('/api/admin', adminRouter);
+
+// Catch-all 404
+app.all('*', (req, res, next) => {
+    const err = new Error(`Route ${req.originalUrl} not found`);
+    err.statusCode = 404;
+    next(err);
+});
+
+// Final Error Handling Middleware
+app.use((err, req, res, next) => {
+    const statusCode = err.statusCode || 500;
+    res.status(statusCode).json({
+        success: false,
+        message: err.message,
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+});
 
 module.exports = app;

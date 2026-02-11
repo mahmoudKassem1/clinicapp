@@ -18,10 +18,7 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Please provide an email'],
         unique: true,
-        match: [
-            /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
-            'Please add a valid email'
-        ]
+        match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Please add a valid email']
     },
     phone: {
         type: String,
@@ -32,6 +29,11 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: ['patient', 'doctor', 'management'],
         default: 'patient'
+    },
+    // ✅ NEW: Explicit default to prevent "Terminated" flickering
+    isAvailable: {
+        type: Boolean,
+        default: true
     },
     language: {
         type: String,
@@ -50,32 +52,20 @@ const userSchema = new mongoose.Schema({
 });
 
 // Encrypt password using bcrypt
-userSchema.pre('save', async function() { // 1. REMOVED 'next' argument
-    // If password is not modified, just return (exit the function)
-    if (!this.isModified('password')) {
-        return; 
-    }
-
-    // Hash the password
+userSchema.pre('save', async function() {
+    if (!this.isModified('password')) return; 
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
-    
-    // 2. REMOVED 'next()' call at the end
 });
 
-// Match user entered password to hashed password in database
 userSchema.methods.matchPassword = async function(enteredPassword) {
     return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Generate and hash password reset token
 userSchema.methods.createPasswordResetToken = function() {
     const resetToken = crypto.randomBytes(32).toString('hex');
-
     this.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-
-    this.passwordResetExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
-
+    this.passwordResetExpires = Date.now() + 10 * 60 * 1000; 
     return resetToken;
 };
 

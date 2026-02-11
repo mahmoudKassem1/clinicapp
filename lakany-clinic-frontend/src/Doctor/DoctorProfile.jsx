@@ -1,268 +1,171 @@
-import React, { useState, useContext, useMemo } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Power, Bell, User, ShieldAlert, CheckCircle, XCircle, LogOut } from 'lucide-react'; // Added LogOut
+import { Power, ShieldAlert, CheckCircle, LogOut, Loader2 } from 'lucide-react';
 import { LanguageContext } from '../patient/LanguageContext';
 import BackButton from '../patient/BackButton';
 import DoctorNavbar from './DoctorNavbar';
 import { Toaster, toast } from 'react-hot-toast';
 
-import AvailabilityContext from '../context/AvailabilityContext';
 import DrLakanyImage from '../assets/DrLakany-removebg-preview (1).png';
+import { updateAvailability, getDoctorProfile } from './doctorApi';
 
 const DoctorProfile = () => {
   const { language } = useContext(LanguageContext);
   const navigate = useNavigate();
   const location = useLocation();
-  const { isDoctorAvailable, toggleAvailability, broadcast, broadcastMessage } = useContext(AvailabilityContext);
-  const [broadcastMessageText, setBroadcastMessageText] = useState(''); // New state for broadcast message input
+  
+  // ✅ Initialize as null so we don't default to "Terminated" while loading
+  const [isDoctorAvailable, setIsDoctorAvailable] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Mock doctor profile data
-  const doctorProfile = useMemo(() => ({
-    name: "Dr. Mohamed Ellakany",
-    specialty: "Pain Management Specialist",
-    imageUrl: DrLakanyImage, // Placeholder image URL
-  }), []);
-
-  const translations = {
+  const t = {
     en: {
       profileTitle: "Doctor's Profile",
-      specialty: "Specialty",
-      liveStatus: "Live Status",
-      clinicOpen: "Clinic Open",
-      clinicClosed: "Clinic Closed",
-      terminateAppointments: "Terminate Appointments",
-      enableAppointments: "Enable Appointments",
-      broadcastMessage: "Broadcast Message to Patients",
-      messageTitle: "Message Title",
-      messageContent: "Message Content",
-      sendBroadcast: "Send Broadcast",
-      broadcastSuccess: "Message sent to patients!",
-      doctorUnavailable: "The doctor is currently unavailable. Please check back later.",
-      broadcastPlaceholder: "Type your message here...",
-      terminateConfirmation: "Are you sure you want to disable the app?",
-      appDisabled: "App Disabled",
-      yes: "Yes",
-      no: "No",
-      broadcastConfirmation: "Are you sure you want to send this broadcast message?",
-      logout: "Logout",
-      logoutConfirmation: "Are you sure you want to log out?",
-      loggingOut: "Logging out...",
+      liveStatus: "Clinic Booking Status",
+      clinicOpen: "Clinic Open (Accepting Bookings)",
+      clinicClosed: "Clinic Terminated (Bookings Blocked)",
+      terminateAppointments: "Terminate Bookings",
+      enableAppointments: "Enable Bookings",
+      terminateConfirmation: "This will block all new patient bookings. Continue?",
+      yes: "Yes", no: "No", logout: "Logout",
+      clinicTerminated: 'Clinic Terminated',
+      clinicEnabled: 'Clinic Enabled',
+      syncing: 'Syncing...',
     },
     ar: {
       profileTitle: "ملف الطبيب",
-      specialty: "التخصص",
-      liveStatus: "الحالة المباشرة",
+      liveStatus: "حالة حجوزات العيادة",
       clinicOpen: "العيادة مفتوحة",
       clinicClosed: "العيادة مغلقة",
-      terminateAppointments: "إنهاء المواعيد",
-      enableAppointments: "تفعيل المواعيد",
-      broadcastMessage: "بث رسالة للمرضى",
-      messageTitle: "عنوان الرسالة",
-      messageContent: "محتوى الرسالة",
-      sendBroadcast: "إرسال البث",
-      broadcastSuccess: "تم إرسال الرسالة إلى المرضى!",
-      doctorUnavailable: "الطبيب غير متاح حاليًا. يرجى التحقق لاحقًا.",
-      broadcastPlaceholder: "اكتب رسالتك هنا...",
-      terminateConfirmation: "هل أنت متأكد أنك تريد تعطيل التطبيق؟",
-      appDisabled: "تم تعطيل التطبيق",
-      yes: "نعم",
-      no: "لا",
-      broadcastConfirmation: "هل أنت متأكد أنك تريد إرسال هذه الرسالة الإذاعية؟",
-      logout: "تسجيل الخروج",
-      logoutConfirmation: "هل أنت متأكد أنك تريد تسجيل الخروج؟",
-      loggingOut: "يتم تسجيل الخروج...",
+      terminateAppointments: "إغلاق الحجوزات",
+      enableAppointments: "فتح الحجوزات",
+      terminateConfirmation: "سيتم منع الحجوزات الجديدة. هل ترغب في الاستمرار؟",
+      yes: "نعم", no: "لا", logout: "خروج",
+      clinicTerminated: 'تم إغلاق العيادة',
+      clinicEnabled: 'تم فتح العيادة',
+      syncing: 'جاري المزامنة...',
     }
-  };
+  }[language];
 
-  const t = translations[language];
   const isArabic = language === 'ar';
 
-  const handleBroadcast = () => {
-    if (broadcastMessageText.trim()) {
-      toast((tost) => (
-        <div className="flex flex-col gap-4">
-          <span>{t.broadcastConfirmation}</span>
-          <div className="flex gap-2">
-            <button
-              onClick={() => {
-                broadcast(broadcastMessageText, 'info');
-                toast.dismiss(tost.id);
-                toast.success(t.broadcastSuccess);
-                setBroadcastMessageText('');
-              }}
-              className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              {t.yes}
-            </button>
-            <button
-              onClick={() => toast.dismiss(tost.id)}
-              className="w-full bg-slate-200 text-slate-800 py-2 rounded-lg hover:bg-slate-300 transition-colors"
-            >
-              {t.no}
-            </button>
-          </div>
-        </div>
-      ), {
-        duration: 6000,
-      });
-    } else {
-      toast.error("Message cannot be empty.");
+  // --- 1. Fetch REAL status from Database ---
+  useEffect(() => {
+    const syncStatus = async () => {
+      try {
+        const response = await getDoctorProfile();
+        // Fallback to true if isAvailable isn't set yet
+        const status = response?.data?.isAvailable ?? true;
+        setIsDoctorAvailable(status);
+      } catch (error) {
+        console.error("Sync Error:", error);
+        setIsDoctorAvailable(true); // Fail-safe to Open
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    syncStatus();
+  }, []);
+
+  // --- 2. Manual Update ---
+  const handleToggle = async (target) => {
+    const toastId = toast.loading(target ? "Activating..." : "Terminating...");
+    setIsLoading(true);
+    try {
+      await updateAvailability(target);
+      setIsDoctorAvailable(target);
+      toast.success(target ? t.clinicEnabled : t.clinicTerminated, { id: toastId });
+    } catch (err) {
+      toast.error("Error updating status", { id: toastId });
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleTerminateAppointments = () => {
+  const confirmTerminate = () => {
     toast((tost) => (
       <div className="flex flex-col gap-4">
-        <span>{t.terminateConfirmation}</span>
+        <p className="font-bold text-slate-800">{t.terminateConfirmation}</p>
         <div className="flex gap-2">
-          <button
-            onClick={() => {
-              toggleAvailability(false);
-              toast.dismiss(tost.id);
-              toast.success(t.appDisabled);
-            }}
-            className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors"
-          >
-            {t.yes}
-          </button>
-          <button
-            onClick={() => toast.dismiss(tost.id)}
-            className="w-full bg-slate-200 text-slate-800 py-2 rounded-lg hover:bg-slate-300 transition-colors"
-          >
-            {t.no}
-          </button>
+          <button onClick={() => { toast.dismiss(tost.id); handleToggle(false); }} className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold"> {t.yes} </button>
+          <button onClick={() => toast.dismiss(tost.id)} className="bg-slate-100 px-4 py-2 rounded-lg"> {t.no} </button>
         </div>
       </div>
-    ), {
-      duration: 6000,
-    });
+    ), { duration: 6000 });
   };
-
-  const handleLogout = () => {
-    toast((tost) => (
-      <div className="flex flex-col gap-4">
-        <span>{t.logoutConfirmation}</span>
-        <div className="flex gap-2">
-          <button
-            onClick={() => {
-              toast.dismiss(tost.id);
-              toast.success(t.loggingOut);
-              localStorage.removeItem('authToken');
-              localStorage.removeItem('userRole');
-              navigate('/doctor-login');
-            }}
-            className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors"
-          >
-            {t.yes}
-          </button>
-          <button
-            onClick={() => toast.dismiss(tost.id)}
-            className="w-full bg-slate-200 text-slate-800 py-2 rounded-lg hover:bg-slate-300 transition-colors"
-          >
-            {t.no}
-          </button>
-        </div>
-      </div>
-    ), {
-      duration: 6000,
-    });
-  };
-
 
   return (
     <div className={`min-h-screen bg-slate-50 ${isArabic ? 'font-arabic' : ''}`} dir={isArabic ? 'rtl' : 'ltr'}>
-      <Toaster position="top-center" reverseOrder={false} />
+      <Toaster position="top-center" />
       <DoctorNavbar currentPath={location.pathname} />
       
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-        <header className="mb-6 flex items-center justify-between">
+      <div className="max-w-4xl mx-auto px-4 pt-10 pb-20">
+        <header className="mb-10 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <BackButton />
-            <h1 className="text-3xl font-black text-slate-800 tracking-tight">{t.profileTitle}</h1>
+            <h1 className="text-4xl font-black text-slate-900">{t.profileTitle}</h1>
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-200 text-slate-800 font-semibold hover:bg-slate-300 transition-colors"
-          >
-            <LogOut size={20} />
-            {t.logout}
+          <button onClick={() => navigate('/doctor-login')} className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-white border font-bold hover:text-red-600 transition-all">
+            <LogOut size={18} /> {t.logout}
           </button>
         </header>
 
-        {/* Doctor Profile Card */}
-        <div className="bg-white rounded-xl shadow-sm p-6 mb-6 border border-slate-100 flex items-center gap-6">
-          <img 
-            src={doctorProfile.imageUrl} 
-            alt={doctorProfile.name} 
-            className="w-24 h-24 rounded-full object-cover border-4 border-blue-100 p-1" 
-          />
-          <div>
-            <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-              <User size={24} /> {doctorProfile.name}
-            </h2>
-            <p className="text-blue-600 font-medium">{t.specialty}: {doctorProfile.specialty}</p>
-            
-            {/* Live Status Badge */}
-            <div className={`mt-2 px-3 py-1 rounded-full text-sm font-semibold flex items-center gap-2 ${
-              isDoctorAvailable ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+        {/* Profile Info Card */}
+        <div className="bg-white rounded-[2.5rem] shadow-xl p-8 mb-8 flex flex-col md:flex-row items-center gap-8 border border-white">
+          <div className="relative">
+            <img src={DrLakanyImage} className="w-32 h-32 rounded-[2rem] object-cover border-4 border-slate-50" alt="Doctor" />
+            {/* Status Indicator Badge */}
+            <div className={`absolute -bottom-2 -right-2 p-2 rounded-xl border-4 border-white text-white shadow-lg ${
+              isLoading ? 'bg-slate-300' : isDoctorAvailable ? 'bg-green-500' : 'bg-red-500'
             }`}>
-              {isDoctorAvailable ? <CheckCircle size={16} /> : <XCircle size={16} />}
-              {t.liveStatus}: {isDoctorAvailable ? t.clinicOpen : t.clinicClosed}
+              {isLoading ? <Loader2 size={20} className="animate-spin" /> : isDoctorAvailable ? <CheckCircle size={20} /> : <ShieldAlert size={20} />}
+            </div>
+          </div>
+          
+          <div className="text-center md:text-start flex-1">
+            <h2 className="text-3xl font-black text-slate-900 mb-2">Dr. Mohamed Ellakany</h2>
+            <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-2xl font-black text-sm ${
+              isLoading ? 'bg-slate-100 text-slate-400' : isDoctorAvailable ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+            }`}>
+              {isLoading && <Loader2 size={14} className="animate-spin" />}
+              {isLoading ? t.syncing : (isDoctorAvailable ? t.clinicOpen : t.clinicClosed)}
             </div>
           </div>
         </div>
 
-        {/* Availability Toggle */}
-        <div className="bg-white rounded-xl shadow-sm p-6 mb-6 border border-slate-100">
-          <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <Power size={20} /> {t.liveStatus}
-          </h2>
-          <div className="flex gap-4 flex-wrap">
+        {/* Manual Controls */}
+        <div className="bg-white rounded-[2.5rem] shadow-xl p-8 border border-white">
+          <div className="flex items-center gap-3 mb-8">
+            <div className="p-2 bg-slate-900 rounded-lg text-white"><Power size={20} /></div>
+            <h2 className="text-xl font-black text-slate-900">{t.liveStatus}</h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {/* Terminate Button */}
             <button
-              onClick={handleTerminateAppointments}
-              className="flex items-center gap-2 px-6 py-3 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors shadow-md"
-              disabled={!isDoctorAvailable} // Disable if already terminated
+              onClick={confirmTerminate}
+              disabled={isLoading || isDoctorAvailable === false}
+              className={`flex flex-col items-center gap-4 p-10 rounded-[2.5rem] border-2 transition-all ${
+                isDoctorAvailable === false || isLoading ? 'opacity-40 grayscale cursor-not-allowed' : 'hover:border-red-500 hover:shadow-2xl group'
+              }`}
             >
-              <ShieldAlert size={20} /> {t.terminateAppointments}
+              <div className="p-5 rounded-2xl bg-red-50 text-red-500 group-hover:bg-red-500 group-hover:text-white transition-all"><ShieldAlert size={40} /></div>
+              <span className="font-black text-lg">{t.terminateAppointments}</span>
             </button>
+
+            {/* Activate Button */}
             <button
-              onClick={() => toggleAvailability(true)}
-              className="flex items-center gap-2 px-6 py-3 rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 transition-colors shadow-md"
-              disabled={isDoctorAvailable} // Disable if already enabled
+              onClick={() => handleToggle(true)}
+              disabled={isLoading || isDoctorAvailable === true}
+              className={`flex flex-col items-center gap-4 p-10 rounded-[2.5rem] border-2 transition-all ${
+                isDoctorAvailable === true || isLoading ? 'opacity-40 grayscale cursor-not-allowed' : 'hover:border-green-500 hover:shadow-2xl group'
+              }`}
             >
-              <CheckCircle size={20} /> {t.enableAppointments}
+              <div className="p-5 rounded-2xl bg-green-50 text-green-500 group-hover:bg-green-500 group-hover:text-white transition-all"><CheckCircle size={40} /></div>
+              <span className="font-black text-lg">{t.enableAppointments}</span>
             </button>
           </div>
         </div>
-
-        {/* Broadcast Message Section */}
-        <div className="bg-white rounded-xl shadow-sm p-6 mb-6 border border-slate-100">
-          <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <Bell size={20} /> {t.broadcastMessage}
-          </h2>
-          <textarea
-            className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-slate-700 mb-4"
-            rows="3"
-            placeholder={t.broadcastPlaceholder}
-            value={broadcastMessageText}
-            onChange={(e) => setBroadcastMessageText(e.target.value)}
-          ></textarea>
-          <button
-            onClick={handleBroadcast}
-            className="flex items-center gap-2 px-6 py-3 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors shadow-md"
-          >
-            <Bell size={20} /> {t.sendBroadcast}
-          </button>
-          {/* Simple banner for broadcast message on this page */}
-          {broadcastMessage && (
-            <div className={`mt-4 p-3 rounded-lg ${
-              broadcastMessage.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
-            }`}>
-              <p className="font-semibold">{broadcastMessage.message}</p>
-            </div>
-          )}
-        </div>
-
       </div>
     </div>
   );

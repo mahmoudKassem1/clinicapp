@@ -50,7 +50,7 @@ const ForgotPassword = () => {
         const toastId = toast.loading(t.sending);
 
         try {
-            await api.post('/api/users/forgotPassword', { email });
+            await api.post('/users/forgotPassword', { email });
             toast.success(t.success, { id: toastId });
             setEmail('');
         } catch (err) {

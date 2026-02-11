@@ -4,9 +4,11 @@ import { LanguageContext } from './LanguageContext';
 import toast from 'react-hot-toast';
 import api from '../axios';
 import { AnimatePresence, motion } from 'framer-motion';
-import { MapPin, X } from 'lucide-react';
+import { MapPin, X, Calendar, FileText, ChevronRight, Inbox } from 'lucide-react';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 const LocationModal = ({ isOpen, onClose, isArabic, t }) => {
+    // This modal component is well-structured, no changes needed here.
     if (!isOpen) return null;
 
     const locations = {
@@ -37,22 +39,8 @@ const LocationModal = ({ isOpen, onClose, isArabic, t }) => {
                         </button>
                         <h3 className="text-xl font-bold text-gray-800 mb-6 text-center">{t.modalTitle}</h3>
                         <div className="space-y-4">
-                            <a
-                                href={locations.janaklees}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="block w-full text-center py-4 px-6 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-md text-lg"
-                            >
-                                {t.janakleesButton}
-                            </a>
-                            <a
-                                href={locations.raml}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="block w-full text-center py-4 px-6 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-md text-lg"
-                            >
-                                {t.ramlButton}
-                            </a>
+                            <a href={locations.janaklees} target="_blank" rel="noopener noreferrer" className="block w-full text-center py-4 px-6 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-md text-lg">{t.janakleesButton}</a>
+                            <a href={locations.raml} target="_blank" rel="noopener noreferrer" className="block w-full text-center py-4 px-6 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-md text-lg">{t.ramlButton}</a>
                         </div>
                     </div>
                 </motion.div>
@@ -61,52 +49,79 @@ const LocationModal = ({ isOpen, onClose, isArabic, t }) => {
     );
 };
 
+const getStatusBadgeStyle = (status) => {
+    switch (status) {
+        case 'completed':
+        case 'done':
+            return 'bg-green-100 text-green-800';
+        case 'upcoming':
+        case 'confirmed':
+            return 'bg-blue-100 text-blue-800';
+        case 'cancelled':
+        case 'no-show':
+            return 'bg-red-100 text-red-800';
+        default:
+            return 'bg-gray-100 text-gray-800';
+    }
+};
+
+const RecordItem = ({ apt, language, onNavigate }) => {
+    const hasRecord = apt.medicalRecord && (apt.medicalRecord.medicalAdvice || apt.medicalRecord.prescription);
+    const date = new Date(apt.date).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+    return (
+        <li
+            className="p-4 bg-gray-50 rounded-lg border border-gray-200 transition-shadow hover:shadow-md cursor-pointer"
+            onClick={() => onNavigate(`/patient/records/${apt._id}`)}
+        >
+            <div className="flex justify-between items-center">
+                <div className="flex items-center gap-4">
+                    <div className={`p-3 rounded-full ${hasRecord ? 'bg-blue-100' : 'bg-gray-100'}`}>
+                        <FileText size={20} className={hasRecord ? 'text-blue-600' : 'text-gray-500'} />
+                    </div>
+                    <div>
+                        <p className="font-bold text-gray-800">{date}</p>
+                        <p className={`text-sm font-semibold capitalize px-2 py-0.5 mt-1 rounded-full inline-block ${getStatusBadgeStyle(apt.status)}`}>
+                            {apt.status}
+                        </p>
+                    </div>
+                </div>
+                <ChevronRight size={24} className="text-gray-400" />
+            </div>
+        </li>
+    );
+};
+
 
 const MedicalRecords = () => {
     const { language } = useContext(LanguageContext);
     const navigate = useNavigate();
     const [appointments, setAppointments] = useState([]);
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [showLocationModal, setShowLocationModal] = useState(false);
 
     const text = {
-        en: {
-          medicalRecords: 'Medical Records',
-          loading: 'Loading...',
-          modalTitle: "Clinic Locations",
-          janakleesButton: "Janaklees Clinic",
-          ramlButton: "Mahatet al Raml Clinic",
-        },
-        ar: {
-          medicalRecords: 'السجلات الطبية',
-          loading: 'تحميل...',
-          modalTitle: "مواقع العيادات",
-          janakleesButton: "عيادة جناكليس",
-          ramlButton: "عيادة محطة الرمل",
-        },
+        en: { medicalRecords: 'Medical Records', noRecords: 'Your medical history will appear here.', loading: 'Loading...', modalTitle: "Clinic Locations", janakleesButton: "Janaklees Clinic", ramlButton: "Mahatet al Raml Clinic" },
+        ar: { medicalRecords: 'السجلات الطبية', noRecords: 'سيظهر تاريخك الطبي هنا.', loading: 'تحميل...', modalTitle: "مواقع العيادات", janakleesButton: "عيادة جناكليس", ramlButton: "عيادة محطة الرمل" },
     };
-
     const t = text[language];
 
     useEffect(() => {
         const fetchAppointments = async () => {
-          setIsLoading(true);
-          setError(null);
-          try {
-            const response = await api.get('/api/appointments/my-appointments');
-            if (response.data && response.data.success) {
-              setAppointments(response.data.data);
-            } else {
-              setAppointments([]);
+            setIsLoading(true);
+            try {
+                const response = await api.get('/appointments/my-appointments');
+                // Filter for appointments that are completed, as they are most likely to have records.
+                const records = response.data?.data.filter(apt => ['completed', 'done', 'cancelled'].includes(apt.status)) || [];
+                setAppointments(records);
+            } catch (err) {
+                const errorMessage = err.response?.data?.message || 'Failed to fetch medical records.';
+                setError(errorMessage);
+                toast.error(errorMessage);
+            } finally {
+                setIsLoading(false);
             }
-          } catch (err) {
-            const errorMessage = err.response?.data?.message || 'Failed to fetch appointments.';
-            setError(errorMessage);
-            toast.error(errorMessage);
-          } finally {
-            setIsLoading(false);
-          }
         };
         fetchAppointments();
     }, []);
@@ -114,53 +129,31 @@ const MedicalRecords = () => {
     return (
         <>
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                <div className="flex justify-between items-center mb-4">
+                <div className="flex justify-between items-center mb-6">
                     <h2 className="text-xl font-bold text-gray-800">{t.medicalRecords}</h2>
-                    <button 
-                        onClick={() => setShowLocationModal(true)}
-                        className="p-2 text-gray-500 rounded-full hover:bg-gray-100 hover:text-blue-600 transition-colors"
-                        aria-label="Clinic Locations"
-                    >
+                    <button onClick={() => setShowLocationModal(true)} className="p-2 text-gray-500 rounded-full hover:bg-gray-100 hover:text-blue-600 transition-colors" aria-label="Clinic Locations">
                         <MapPin size={24} />
                     </button>
                 </div>
-                {isLoading ? (
-                    <p className="text-gray-500">{t.loading}</p>
-                ) : error ? (
-                    <p className="text-red-500">{error}</p>
-                ) : appointments.length > 0 ? (
+                
+                {isLoading ? <LoadingSpinner message={t.loading} />
+                : error ? <p className="text-red-500 text-center py-8">{error}</p>
+                : appointments.length > 0 ? (
                     <ul className="space-y-3">
-                    {appointments.map(apt => (
-                        <li key={apt._id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                            <div className="flex justify-between items-center">
-                                <div>
-                                    <p className="font-bold text-gray-800">{new Date(apt.date).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
-                                    <p className={`text-sm font-semibold capitalize ${apt.status === 'completed' ? 'text-green-600' : apt.status === 'cancelled' ? 'text-red-600' : 'text-yellow-600'}`}>{apt.status}</p>
-                                </div>
-                                <button onClick={() => navigate(`/dashboard/records/${apt._id}`)} className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200">View Details</button>
-                            </div>
-                            {apt.medicalRecord && (
-                            <div className="mt-3 pt-3 border-t border-gray-200 text-sm">
-                                <p className="font-semibold">Doctor's Note:</p>
-                                <p className="text-gray-600 whitespace-pre-wrap">{apt.medicalRecord.medicalAdvice || 'No advice provided.'}</p>
-                            </div>
-                            )}
-                        </li>
-                    ))}
+                        {appointments.map(apt => (
+                            <RecordItem key={apt._id} apt={apt} language={language} onNavigate={navigate} />
+                        ))}
                     </ul>
                 ) : (
-                    <p className="text-gray-500">Your medical history will appear here.</p>
+                    <div className="text-center py-10">
+                        <Inbox size={48} className="mx-auto text-gray-300" />
+                        <p className="mt-4 text-gray-500">{t.noRecords}</p>
+                    </div>
                 )}
             </div>
-            <LocationModal
-                isOpen={showLocationModal}
-                onClose={() => setShowLocationModal(false)}
-                isArabic={language === 'ar'}
-                t={t}
-            />
+            <LocationModal isOpen={showLocationModal} onClose={() => setShowLocationModal(false)} isArabic={language === 'ar'} t={t} />
         </>
     );
 };
 
 export default MedicalRecords;
-

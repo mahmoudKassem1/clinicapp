@@ -1,14 +1,13 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link, useNavigate } from 'react-router-dom';
-import { LanguageContext } from './LanguageContext';
-import { User, Phone, Mail, Lock, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { LanguageContext } from '../patient/LanguageContext';
+import { Mail, Lock, Globe, User, Phone } from 'lucide-react';
 import logo from '../assets/logo-removebg-preview.png';
 import toast from 'react-hot-toast';
-import api from '../axios';
+import mgmtApi from './mgmtApi';
 
-// --- 1. MOVE HELPER COMPONENT OUTSIDE ---
-// This prevents the "losing focus" issue because the component definition is now stable.
+// Helper InputField component
 const InputField = ({ icon, placeholder, type = 'text', value, onChange, isArabic, autocomplete }) => (
   <div className="relative group">
     <div className={`absolute inset-y-0 ${isArabic ? 'right-4' : 'left-4'} flex items-center pointer-events-none transition-colors group-focus-within:text-blue-600 text-slate-400`}>
@@ -25,30 +24,39 @@ const InputField = ({ icon, placeholder, type = 'text', value, onChange, isArabi
   </div>
 );
 
-const PatientAuth = () => {
+const ManagementAuth = () => {
   const [isLogin, setIsLogin] = useState(true);
-  const { language } = useContext(LanguageContext);
+  const { language, toggleLanguage } = useContext(LanguageContext);
   const navigate = useNavigate();
   const isArabic = language === 'ar';
 
-  const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [identifier, setIdentifier] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Requirement #1: Restrict access to specific users
+  const ALLOWED_ACCESS_LIST = ['admin@lakany.com', 'manager@lakany.com', 'doctor@lakany.com'];
+
+  // Redirect if already logged in
+  useEffect(() => {
+    const token = localStorage.getItem('management_token');
+    if (token) {
+      navigate('/admin/dashboard', { replace: true });
+    }
+  }, [navigate]);
 
   const blueFilter = "brightness(0) saturate(100%) invert(18%) sepia(88%) saturate(3451%) hue-rotate(215deg) brightness(91%) contrast(101%)";
 
   const text = {
     en: {
-      login: 'Login',
-      signup: 'Sign Up',
-      name: 'Full Name',
+      login: 'Management Login',
+      signup: 'Management Sign Up',
+      username: 'Full Name',
       phone: 'Phone Number',
       email: 'Email Address',
       password: 'Password',
-      identifier: 'Phone or Email',
       loginPrompt: "Don't have an account?",
       signupPrompt: 'Already have an account?',
       back: 'Back to Home',
@@ -57,106 +65,78 @@ const PatientAuth = () => {
       signupSuccess: 'Signup Successful!',
       loading: 'Processing...',
       error: 'An error occurred. Please try again.',
-      validationName: 'Please enter your full name.',
+      validationUsername: 'Please enter your full name.',
       validationPhone: 'Please enter your phone number.',
       validationEmail: 'Please enter your email address.',
       validationPassword: 'Password is required.',
-      validationIdentifier: 'Please enter your phone or email.',
-      forgotPassword: 'Forgot your password?',
     },
     ar: {
-      login: 'تسجيل الدخول',
-      signup: 'إنشاء حساب',
-      name: 'الاسم الكامل',
+      login: 'تسجيل دخول الإدارة',
+      signup: 'تسجيل جديد للإدارة',
+      username: 'الاسم الكامل',
       phone: 'رقم الهاتف',
       email: 'البريد الإلكتروني',
       password: 'كلمة المرور',
-      identifier: 'الهاتف أو البريد الإلكتروني',
       loginPrompt: 'ليس لديك حساب؟',
       signupPrompt: 'هل لديك حساب بالفعل؟',
       back: 'العودة للرئيسية',
-      clinicName: 'عيادة لاكاني',
+      clinicName: 'عيادة لاكاني لعلاج الالم',
       loginSuccess: 'تم تسجيل الدخول بنجاح!',
-      signupSuccess: 'تم إنشاء الحساب بنجاح!',
+      signupSuccess: 'تم التسجيل بنجاح!',
       loading: 'جاري المعالجة...',
       error: 'حدث خطأ. يرجى المحاولة مرة أخرى.',
-      validationName: 'يرجى إدخال اسمك الكامل.',
-      validationPhone: 'يرجى إدخال رقم هاتفك.',
+      validationUsername: 'يرجى إدخال اسمك الكامل.',
+      validationPhone: 'يرجى إدخال رقم الهاتف.',
       validationEmail: 'يرجى إدخال بريدك الإلكتروني.',
       validationPassword: 'كلمة المرور مطلوبة.',
-      validationIdentifier: 'يرجى إدخال رقم الهاتف أو البريد الإلكتروني.',
-      forgotPassword: 'هل نسيت كلمة المرور؟',
     },
   };
 
   const t = text[language];
 
-  // --- 2. CLEAR STATE ON MODE TOGGLE ---
-  // This improves user experience by resetting the form.
-  React.useEffect(() => {
-    setName('');
-    setPhone('');
-    setEmail('');
-    setPassword('');
-    setIdentifier('');
-  }, [isLogin]);
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    // --- Validation ---
-    if (isLogin) {
-      if (!identifier) return toast.error(t.validationIdentifier);
-      if (!password) return toast.error(t.validationPassword);
-    } else {
-      if (!name) return toast.error(t.validationName);
-      if (!phone) return toast.error(t.validationPhone);
-      if (!email) return toast.error(t.validationEmail);
-      if (!password) return toast.error(t.validationPassword);
-    }
+    if (!isLogin && !username) return toast.error(t.validationUsername);
+    if (!isLogin && !phone) return toast.error(t.validationPhone);
+    if (!email) return toast.error(t.validationEmail);
+    if (!password) return toast.error(t.validationPassword);
 
     setIsLoading(true);
+
+    // Guard: Check if user is allowed
+    if (!isLogin && !ALLOWED_ACCESS_LIST.includes(email)) {
+      setIsLoading(false);
+      return toast.error("Access restricted: This email is not authorized for management access.");
+    }
+
     const toastId = toast.loading(t.loading);
 
-    // --- API Call Logic ---
-    try {
-      let response;
-      if (isLogin) {
-        const isEmail = identifier.includes('@');
-        const loginPayload = {
-          [isEmail ? 'email' : 'phone']: identifier,
-          password,
-        };
-        response = await api.post('/patient/login', loginPayload);
-      } else {
-        const signupPayload = {
-          username: name,
-          email,
-          password,
-          phone,
-          language,
-        };
-        response = await api.post('/patient/signup', signupPayload);
-      }
+    // ... inside handleSubmit function ...
+try {
+  const endpoint = isLogin ? '/enterprise/login' : '/enterprise/signup';
+  const payload = { email, password };
+  if (!isLogin) {
+    payload.username = username;
+    payload.phone = phone;
+    payload.role = 'management';
+  }
+  
+  // Use mgmtApi to ensure baseURL and headers are handled
+  // endpoint already includes '/enterprise', so use it directly
+  const { data } = await mgmtApi.post(endpoint, payload);
 
-      if (response.data && response.data.token && response.data.data.user) {
-        localStorage.setItem('token', response.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.data.user));
-        
-        toast.success(isLogin ? t.loginSuccess : t.signupSuccess, { id: toastId });
-        navigate('/dashboard');
-      } else {
-        throw new Error('Invalid server response format');
-      }
-    } catch (err) {
-      let errorMessage = t.error;
-      if (!err.response) {
-        errorMessage = "Server Connection Error. Please try again later.";
-      } else {
-        errorMessage = err.response.data?.message || err.message;
-      }
-      toast.error(errorMessage, { id: toastId });
-      console.error("Authentication Error:", err);
+  if (data.token) {
+    localStorage.setItem('management_token', data.token);
+    localStorage.setItem('management_user', JSON.stringify(data.data.user));
+    localStorage.setItem('management_userRole', data.data.user.role);
+    
+    toast.success(isLogin ? t.loginSuccess : t.signupSuccess, { id: toastId });
+    navigate('/admin/dashboard');
+  }
+
+    } catch (error) {
+      const msg = error.response?.data?.message || t.error;
+      toast.error(msg, { id: toastId });
     } finally {
       setIsLoading(false);
     }
@@ -170,15 +150,15 @@ const PatientAuth = () => {
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-cyan-50 rounded-full blur-[120px] opacity-60" />
 
       {/* Back Button */}
-      <div className={`absolute top-6 lg:top-10 w-full px-6 lg:px-12 flex ${isArabic ? 'justify-end' : 'justify-start'}`}>
+      <div className={`absolute top-6 lg:top-10 w-full px-6 lg:px-12 flex ${isArabic ? 'justify-start' : 'justify-end'} items-center z-20`}>
         <button 
-          onClick={() => navigate('/')}
+          onClick={toggleLanguage}
           className="group flex items-center gap-3 text-sm font-bold text-slate-500 hover:text-blue-700 transition-all"
         >
           <div className="p-2 bg-white rounded-xl shadow-sm border border-slate-100 group-hover:shadow-md transition-all">
-            <ArrowLeft size={18} className={isArabic ? 'rotate-180' : ''} />
+            <Globe size={18} />
           </div>
-          <span>{t.back}</span>
+          <span>{language === 'en' ? 'AR' : 'EN'}</span>
         </button>
       </div>
 
@@ -228,33 +208,32 @@ const PatientAuth = () => {
               >
                 {!isLogin && (
                   <InputField 
-                    isArabic={isArabic} 
+                    isArabic={isArabic}
                     icon={<User size={20} />} 
-                    placeholder={t.name} 
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    placeholder={t.username} 
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
                     autocomplete="name"
                   />
                 )}
                 {!isLogin && (
                   <InputField 
-                    isArabic={isArabic} 
+                    isArabic={isArabic}
                     icon={<Phone size={20} />} 
-                    placeholder={t.phone}
-                    type="tel"
+                    placeholder={t.phone} 
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
+                    type="tel"
                     autocomplete="tel"
                   />
                 )}
-                
                 <InputField 
                   isArabic={isArabic}
                   icon={<Mail size={20} />} 
-                  placeholder={isLogin ? t.identifier : t.email}
-                  value={isLogin ? identifier : email}
-                  onChange={(e) => isLogin ? setIdentifier(e.target.value) : setEmail(e.target.value)}
-                  autocomplete={isLogin ? "username" : "email"}
+                  placeholder={t.email} 
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autocomplete="username"
                 />
                 
                 <InputField 
@@ -264,25 +243,17 @@ const PatientAuth = () => {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  autocomplete={isLogin ? "current-password" : "new-password"}
+                  autocomplete="current-password"
                 />
               </motion.div>
             </AnimatePresence>
-
-            {isLogin && (
-                <div className="text-right">
-                    <Link to="/forgot-password" className="text-sm font-medium text-blue-700 hover:underline">
-                        {t.forgotPassword}
-                    </Link>
-                </div>
-            )}
             
             <motion.button
               type="submit"
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.99 }}
+              className={`w-full py-4 text-base font-bold text-white rounded-2xl shadow-xl shadow-blue-100 bg-[#1e40af] hover:bg-blue-800 transition-all mt-4 disabled:opacity-50 disabled:cursor-not-allowed`}
               disabled={isLoading}
-              className="w-full py-4 text-base font-bold text-white rounded-2xl shadow-xl shadow-blue-100 bg-[#1e40af] hover:bg-blue-800 transition-all mt-4 disabled:bg-blue-400 disabled:cursor-not-allowed"
             >
               {isLoading ? t.loading : (isLogin ? t.login : t.signup)}
             </motion.button>
@@ -309,4 +280,4 @@ const PatientAuth = () => {
   );
 };
 
-export default PatientAuth;
+export default ManagementAuth;

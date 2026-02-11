@@ -77,36 +77,46 @@ exports.getMyAppointments = async (req, res, next) => {
 // @desc    Create a new patient (by Management)
 // @route   POST /api/enterprise/patients
 // @access  Private (Management)
-exports.createPatient = async (req, res) => {
+exports.createPatient = async (req, res, next) => {
     try {
-        // 1. Force the role to 'patient' (Security)
-        const { username, phone, password, language, email } = req.body;
+        // 1. Destructure fields from the frontend modal
+        const { username, phone, email, password, age, gender, language } = req.body;
         
+        // 2. Prepare data object
         const newPatientData = {
             username,
+            email,    // Added for login capability
             phone,
-            email,
-            password: password || '123456',
+            age,      // Added from modal
+            gender,   // Added from modal
+            password: password || '123456', // Default password if empty
             language: language || 'en',
             role: 'patient'
         };
 
-        // 2. Check if email/phone already exists
-        // (Optional: Add a check here if your DB doesn't auto-throw)
-
-        // 3. Create
+        // 3. Create the user
         const newPatient = await User.create(newPatientData);
 
-        // 4. Send Success
+        // 4. Send response (Remove password from output for security)
+        newPatient.password = undefined;
+
         res.status(201).json({
             status: 'success',
             data: { user: newPatient }
         });
     } catch (err) {
-        console.error("Create Patient Error:", err); // Log the real error to console
-        res.status(400).json({ // Return 400 (Bad Request) instead of 500 (Crash)
+        // Handle duplicate email/phone errors (Mongo Error 11000)
+        if (err.code === 11000) {
+            const field = Object.keys(err.keyValue)[0];
+            return res.status(400).json({
+                status: 'fail',
+                message: `That ${field} is already registered.`
+            });
+        }
+
+        res.status(400).json({
             status: 'fail',
-            message: err.message || "Could not create patient. Check fields."
+            message: err.message || "Could not create patient."
         });
     }
 };
@@ -176,7 +186,7 @@ exports.searchPatients = async (req, res, next) => {
 // @access  Private (Patient)
 exports.getAllDoctors = async (req, res, next) => {
     try {
-        const doctors = await User.find({ role: 'doctor' }).select('_id username clinicLocation');
+        const doctors = await User.find({ role: 'doctor' }).select('_id username clinicLocation isAvailable');
         
         if (!doctors || doctors.length === 0) {
             return next(new AppError('No doctors found.', 404));
@@ -209,6 +219,26 @@ exports.getAllPatients = async (req, res, next) => {
             success: true,
             count: patients.length,
             data: patients // Frontend will read this array
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+// @desc    Get patients for the specific logged-in doctor
+// @route   GET /api/doctor/patients
+// @access  Private (Doctor)
+exports.getDoctorPatients = async (req, res, next) => {
+    try {
+        // Find all unique patient IDs from appointments assigned to this doctor
+        const patientIds = await Appointment.find({ doctorId: req.user.id }).distinct('patientId');
+        
+        // Fetch user details for these patients
+        const patients = await User.find({ _id: { $in: patientIds }, role: 'patient' });
+
+        res.status(200).json({
+            success: true,
+            data: patients
         });
     } catch (err) {
         next(err);
@@ -248,6 +278,49 @@ exports.addMedicalHistory = async (req, res, next) => {
             data: {
                 history: updatedUser.history
             }
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+// @desc    Get ALL Patients (Admin View)
+// @route   GET /api/admin/patients
+// @access  Private (Admin/Management)
+exports.getAdminPatients = exports.getAllPatients;
+
+// @desc    Get Doctor Profile (Me)
+// @route   GET /api/enterprise/doctor/me
+// @access  Private (Doctor)
+exports.getDoctorMe = async (req, res, next) => {
+    try {
+        const user = await User.findById(req.user.id);
+        res.status(200).json({
+            status: 'success',
+            success: true,
+            data: user
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+// @desc    Update Doctor Availability
+// @route   PATCH /api/enterprise/doctor/availability
+// @access  Private (Doctor)
+exports.updateDoctorAvailability = async (req, res, next) => {
+    try {
+        const { isAvailable } = req.body;
+        
+        const updatedUser = await User.findByIdAndUpdate(
+            req.user.id,
+            { isAvailable },
+            { new: true, runValidators: true }
+        );
+
+        res.status(200).json({
+            status: 'success',
+            data: { user: updatedUser }
         });
     } catch (err) {
         next(err);

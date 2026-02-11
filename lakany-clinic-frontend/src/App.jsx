@@ -8,15 +8,13 @@ import { AvailabilityProvider } from './context/AvailabilityContext';
 
 // --- LAYOUTS ---
 import MainLayout from './patient/MainLayout';
-import DashboardLayout from './patient/DashboardLayout';
+import PatientDashboardLayout from './patient/DashboardLayout'; // Renamed for clarity
 
 // --- AUTH & PROTECTION ---
-// Your existing Patient protection
 import PatientAuth from './patient/PatientAuth';
 import ProtectedRoute from './patient/ProtectedRoute'; 
-
-// Doctor protection (Renamed to avoid conflict)
 import RoleProtectedRoute from './components/ProtectedRoute'; 
+import ManagementAuth from './management/ManagementAuth';
 import DoctorAuth from './Doctor/DoctorAuth';
 
 // --- PUBLIC PAGES ---
@@ -40,81 +38,96 @@ import DoctorAppointmentsPage from './Doctor/DoctorAppointmentsPage';
 import PatientRecordDetail from './Doctor/PatientRecordDetail';
 import DoctorProfile from './Doctor/DoctorProfile';
 
+// --- MANAGEMENT PAGES ---
+import ManagementDashboard from './management/ManagementDashboard';
+import Collection from './management/Collection';
+import Finance from './management/Finance';
+import ManagementPatientsPage from './management/ManagementPatientsPage';
+import ManagementLayout from './management/ManagementLayout';
+
 function App() {
   return (
-    <LanguageProvider>
-      <AvailabilityProvider>
+    <AvailabilityProvider>
+      <LanguageProvider>
         <Router>
           <Routes>
             {/* =========================================
-                1. PUBLIC ROUTES & AUTH
+                1. ROOT, PUBLIC & AUTH ROUTES
                ========================================= */}
             <Route path="/" element={<WelcomePage />} />
+            <Route path="/about" element={<MainLayout><About /></MainLayout>} />
             
-            {/* Patient Auth */}
+            {/* Login Pages */}
             <Route path="/login" element={<PatientAuth />} />
+            <Route path="/doctor-login" element={<DoctorAuth />} />
+            <Route path="/management-login" element={<ManagementAuth />} />
+
+            {/* Password Recovery */}
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password/:token" element={<ResetPassword />} />
 
-            {/* Doctor Auth */}
-            <Route path="/doctor-login" element={<DoctorAuth />} />
-            {/* Redirect old path if necessary */}
-            <Route path="/doctor-dashboard" element={<Navigate to="/doctor/dashboard" replace />} />
-
-            {/* Public Pages with Main Layout */}
-            <Route element={<MainLayout />}>
-              <Route path="/about" element={<About />} />
-            </Route>
-
-
             {/* =========================================
-                2. PATIENT DASHBOARD (Your Structure)
+                2. PATIENT PORTAL
                ========================================= */}
+            {/* Patient routes are now nested under /patient and protected by role */}
             <Route 
-              path="/dashboard" 
-              element={
-                <ProtectedRoute>
-                  <DashboardLayout />
-                </ProtectedRoute>
+              path="/patient"
+              element={ // Using RoleProtectedRoute for strict role checking
+                <RoleProtectedRoute allowedRoles={['patient']}>
+                  <PatientDashboardLayout />
+                </RoleProtectedRoute>
               }
             >
-              {/* Redirect /dashboard to /dashboard/overview */}
-              <Route index element={<Navigate to="/dashboard/overview" replace />} />
-              
-              <Route path="overview" element={<PatientDashboard />} />
+              <Route index element={<Navigate to="/patient/dashboard" replace />} />
+              <Route path="dashboard" element={<PatientDashboard />} />
               <Route path="book" element={<BookAppointment />} />
               <Route path="records" element={<MedicalRecords />} />
               <Route path="records/:id" element={<RecordDetail />} />
-              {/* About page inside dashboard if needed */}
-              <Route path="about" element={<About />} /> 
+              <Route path="about" element={<About />} />
             </Route>
-
 
             {/* =========================================
-                3. DOCTOR DASHBOARD (Friend's Structure)
+                3. DOCTOR PORTAL
                ========================================= */}
-            {/* Uses RoleProtectedRoute to ensure only 'doctor' role can access */}
-            <Route element={<RoleProtectedRoute allowedRoles={['doctor']} />}>
-              <Route path="/doctor/dashboard" element={<DoctorDashboard />} />
-              <Route path="/doctor/record/:id" element={<PatientAccount />} />
-              <Route path="/doctor/finance" element={<FinancePage />} />
-              <Route path="/doctor/patients" element={<DoctorPatientsPage />} />
-              <Route path="/doctor/appointments" element={<DoctorAppointmentsPage />} />
-              <Route path="/doctor/patient-record-details/:id" element={<PatientRecordDetail />} />
-              <Route path="/doctor/profile" element={<DoctorProfile />} />
+            <Route path="/doctor" element={<RoleProtectedRoute allowedRoles={['doctor']} />}>
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<DoctorDashboard />} />
+              <Route path="record/:id" element={<PatientAccount />} />
+              <Route path="finance" element={<FinancePage />} />
+              <Route path="patients" element={<DoctorPatientsPage />} />
+              <Route path="appointments" element={<DoctorAppointmentsPage />} />
+              <Route path="patient-record-details/:id" element={<PatientRecordDetail />} />
+              <Route path="profile" element={<DoctorProfile />} />
+            </Route>
+            
+            {/* =========================================
+                4. MANAGEMENT PORTAL
+               ========================================= */}
+            <Route path="/admin" element={<RoleProtectedRoute allowedRoles={['management', 'admin']} />}>
+              <Route element={<ManagementLayout />}>
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<ManagementDashboard />} />
+                <Route path="collection" element={<Collection />} />
+                <Route path="finance" element={<Finance />} />
+                <Route path="patients" element={<ManagementPatientsPage />} />
+              </Route>
             </Route>
 
-            {/* Catch-all for 404 */}
+            {/* =========================================
+                5. FALLBACKS
+               ========================================= */}
+            {/* Redirect old /dashboard URLs to the new /patient path for bookmarks */}
+            <Route path="/dashboard" element={<Navigate to="/patient/dashboard" replace />} />
+            <Route path="/dashboard/*" element={<Navigate to="/patient/dashboard" replace />} />
+            <Route path="/management/*" element={<Navigate to="/admin/dashboard" replace />} />
+            <Route path="/welcome" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
-
           </Routes>
         </Router>
         
-        {/* Global Notification Toaster */}
         <Toaster position="top-center" reverseOrder={false} />
-        
-      </AvailabilityProvider>
-    </LanguageProvider>
+      </LanguageProvider>
+    </AvailabilityProvider>
   );
 }
 

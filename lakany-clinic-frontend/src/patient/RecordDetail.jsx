@@ -60,7 +60,7 @@ const RecordDetail = () => {
         setLoading(true);
         // The user ID is extracted from the URL using useParams()
         // Now, use it to fetch the specific record from your backend.
-        const response = await api.get(`/api/appointments/${id}`); 
+        const response = await api.get(`/appointments/${id}`); 
         if (response.data && response.data.success) {
           setRecord(response.data.data);
         } else {

@@ -4,6 +4,7 @@ import { X, Calendar, Clock, MapPin } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../axios';
 import { LanguageContext } from './LanguageContext';
+import useSyncStatus from '../hooks/useSyncStatus';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 import { registerLocale } from  "react-datepicker";
@@ -36,6 +37,8 @@ const translations = {
         bookingInProgress: 'Booking appointment...',
         bookingSuccess: 'Appointment booked successfully!',
         bookingFailed: 'Failed to book appointment.',
+        doctorUnavailableTitle: 'Clinic Closed',
+        doctorUnavailableMessage: 'The doctor is not accepting appointments at this time. Please check back later.',
     },
     ar: {
         bookAppointment: 'حجز موعد',
@@ -60,12 +63,15 @@ const translations = {
         bookingInProgress: 'جاري حجز الموعد...',
         bookingSuccess: 'تم حجز الموعد بنجاح!',
         bookingFailed: 'فشل حجز الموعد.',
+        doctorUnavailableTitle: 'العيادة مغلقة',
+        doctorUnavailableMessage: 'الطبيب لا يقبل الحجوزات في الوقت الحالي. يرجى المحاولة مرة أخرى في وقت لاحق.',
     }
 };
 
 const BookingModal = ({ isOpen, onClose, onBookingSuccess }) => {
     const { language } = useContext(LanguageContext);
     const isArabic = language === 'ar';
+    const { isClosed } = useSyncStatus();
     const t = translations[language];
 
     // Form state
@@ -78,7 +84,6 @@ const BookingModal = ({ isOpen, onClose, onBookingSuccess }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [slotsLoading, setSlotsLoading] = useState(false);
     const [doctorId, setDoctorId] = useState(null);
-
     const clinicSchedules = {
         [t.janakleesClinic]: { days: [6, 1, 3] },
         [t.ramlClinic]: { days: [6, 2] },
@@ -86,10 +91,13 @@ const BookingModal = ({ isOpen, onClose, onBookingSuccess }) => {
     
     useEffect(() => {
         const fetchDoctor = async () => {
+            // This effect now only fetches the doctor's ID for the booking payload.
+            // The availability status is handled globally by AvailabilityContext.
             try {
-                const response = await api.get('/api/users/doctors');
+                const response = await api.get('/users/doctors');
                 if (response.data && response.data.data.length > 0) {
-                    setDoctorId(response.data.data[0]._id);
+                    const doctor = response.data.data[0];
+                    setDoctorId(doctor._id);
                 } else {
                     toast.error(t.noDoctorError);
                 }
@@ -99,17 +107,20 @@ const BookingModal = ({ isOpen, onClose, onBookingSuccess }) => {
             }
         };
         if(isOpen) fetchDoctor();
-    }, [isOpen, t]);
+    }, [isOpen, t.noDoctorError, t.fetchDoctorError]);
 
     useEffect(() => {
-        if (selectedClinic && selectedDate) {
+        if (selectedClinic && selectedDate && doctorId) {
             const fetchSlots = async () => {
                 setSlotsLoading(true);
                 setSelectedTime('');
                 const clinicApiName = selectedClinic === t.janakleesClinic ? 'Janaklees Clinic' : 'Mahatet al Raml Clinic';
                 try {
-                    const dateISO = selectedDate.toISOString().split('T')[0];
-                    const response = await api.get(`/api/appointments/available-slots?date=${dateISO}&clinicName=${encodeURIComponent(clinicApiName)}`);
+                    // Fix timezone offset issue to ensure correct date is sent
+                    const offset = selectedDate.getTimezoneOffset();
+                    const adjustedDate = new Date(selectedDate.getTime() - (offset * 60 * 1000));
+                    const dateISO = adjustedDate.toISOString().split('T')[0];
+                    const response = await api.get(`/appointments/available-slots?date=${dateISO}&clinicName=${encodeURIComponent(clinicApiName)}&doctorId=${doctorId}`);
                     setAvailableSlots(response.data.data || []);
                 } catch (error) {
                     toast.error(t.fetchSlotsError);
@@ -120,7 +131,7 @@ const BookingModal = ({ isOpen, onClose, onBookingSuccess }) => {
             };
             fetchSlots();
         }
-    }, [selectedClinic, selectedDate, t]);
+    }, [selectedClinic, selectedDate, doctorId, t]);
 
     const formatTime = (time24) => {
         if (!time24) return '';
@@ -182,7 +193,7 @@ const BookingModal = ({ isOpen, onClose, onBookingSuccess }) => {
 
         const toastId = toast.loading(t.bookingInProgress);
         try {
-            const response = await api.post('/api/appointments', bookingData);
+            const response = await api.post('/appointments', bookingData);
             toast.success(t.bookingSuccess, { id: toastId });
             onBookingSuccess(response.data.data);
             resetAndClose();
@@ -206,7 +217,7 @@ const BookingModal = ({ isOpen, onClose, onBookingSuccess }) => {
         <AnimatePresence>
             {isOpen && (
                 <motion.div
-                    className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4"
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
                     initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                     onClick={resetAndClose} dir={isArabic ? 'rtl' : 'ltr'}
                 >
@@ -216,89 +227,97 @@ const BookingModal = ({ isOpen, onClose, onBookingSuccess }) => {
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="flex-shrink-0 p-6 border-b border-gray-200">
-                             <button onClick={resetAndClose} className={`absolute top-4 ${isArabic ? 'left-4' : 'right-4'} text-gray-400 hover:text-gray-600 z-10`}>
-                                <X size={24} />
+                             <button onClick={resetAndClose} className={`absolute top-6 ${isArabic ? 'left-6' : 'right-6'} text-gray-400 hover:text-gray-600 transition-colors z-10`}>
+                                <X size={20} />
                             </button>
                             <h2 className="text-xl font-bold text-gray-800">{t.bookAppointment}</h2>
                         </div>
                         
                         <div className="flex-grow overflow-y-auto p-6">
-                            <form onSubmit={handleSubmit} className="space-y-6">
-                                <div className="flex flex-col md:flex-row gap-6">
-                                    <div className="flex-1 space-y-6">
-                                        <div>
-                                            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2"><MapPin size={20} className="text-blue-600"/><span>{t.step1}</span></h3>
-                                            <div className="grid grid-cols-1 gap-4">
-                                                <button type="button" onClick={() => handleClinicSelect(t.janakleesClinic)} className={`p-4 border rounded-lg text-left transition-all ${selectedClinic === t.janakleesClinic ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-500' : 'bg-gray-50 hover:border-gray-300'}`}>
-                                                    <p className="font-bold text-gray-800">{t.janakleesClinic}</p>
-                                                    <p className="text-sm text-gray-500">{t.janakleesSchedule}</p>
-                                                </button>
-                                                <button type="button" onClick={() => handleClinicSelect(t.ramlClinic)} className={`p-4 border rounded-lg text-left transition-all ${selectedClinic === t.ramlClinic ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-500' : 'bg-gray-50 hover:border-gray-300'}`}>
-                                                    <p className="font-bold text-gray-800">{t.ramlClinic}</p>
-                                                    <p className="text-sm text-gray-500">{t.ramlSchedule}</p>
-                                                </button>
+                            {isClosed && (
+                                <div className="p-4 mb-6 text-center bg-red-50 text-red-700 border border-red-200 rounded-lg">
+                                    <p className="font-bold">{t.doctorUnavailableTitle}</p>
+                                    <p className="text-sm">{t.doctorUnavailableMessage}</p>
+                                </div>
+                            )}
+                            <form onSubmit={handleSubmit}>
+                                <fieldset disabled={isClosed} className="space-y-8">
+                                    <div className="flex flex-col md:flex-row gap-6">
+                                        <div className="flex-1 space-y-6">
+                                            <div>
+                                                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3 flex items-center gap-2"><MapPin size={18} className="text-blue-600"/><span>{t.step1}</span></h3>
+                                                <div className="grid grid-cols-1 gap-4">
+                                                    <button type="button" onClick={() => handleClinicSelect(t.janakleesClinic)} className={`p-4 border rounded-lg text-left transition-all ${selectedClinic === t.janakleesClinic ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-500' : 'bg-gray-50 hover:border-gray-300'}`}>
+                                                        <p className="font-bold text-gray-800">{t.janakleesClinic}</p>
+                                                        <p className="text-sm text-gray-500">{t.janakleesSchedule}</p>
+                                                    </button>
+                                                    <button type="button" onClick={() => handleClinicSelect(t.ramlClinic)} className={`p-4 border rounded-lg text-left transition-all ${selectedClinic === t.ramlClinic ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-500' : 'bg-gray-50 hover:border-gray-300'}`}>
+                                                        <p className="font-bold text-gray-800">{t.ramlClinic}</p>
+                                                        <p className="text-sm text-gray-500">{t.ramlSchedule}</p>
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
+                                        <div className="flex-1">
+                                            {step >= 2 && selectedClinic && (
+                                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                                                    <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3 flex items-center gap-2"><Calendar size={18} className="text-blue-600"/><span>{t.step2}</span></h3>
+                                                    <DatePicker
+                                                        selected={selectedDate}
+                                                        onChange={handleDateSelect}
+                                                        filterDate={isDayDisabled}
+                                                        minDate={new Date()}
+                                                        inline
+                                                        className="w-full"
+                                                        locale={language}
+                                                    />
+                                                </motion.div>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div className="flex-1">
-                                        {step >= 2 && selectedClinic && (
-                                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                                                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2"><Calendar size={20} className="text-blue-600"/><span>{t.step2}</span></h3>
-                                                <DatePicker
-                                                    selected={selectedDate}
-                                                    onChange={handleDateSelect}
-                                                    filterDate={isDayDisabled}
-                                                    minDate={new Date()}
-                                                    inline
-                                                    className="w-full"
-                                                    locale={language}
-                                                />
-                                            </motion.div>
-                                        )}
-                                    </div>
-                                </div>
 
-                                {step >= 3 && selectedDate && (
-                                   <motion.div initial={{ opacity: 0, y:10 }} animate={{ opacity: 1, y:0 }}>
-                                        <h3 className="text-lg font-semibold mb-3 flex items-center gap-2"><Clock size={20} className="text-blue-600"/><span>{t.step3}</span></h3>
-                                        {slotsLoading ? <p>{t.loadingSlots}</p> : (
-                                            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-                                                {availableSlots.length > 0 ? availableSlots.map(slot => (
-                                                    <button
-                                                        key={slot.time}
-                                                        type="button"
-                                                        disabled={slot.available === false}
-                                                        onClick={() => slot.available === true && setSelectedTime(slot.time)}
-                                                        className={`p-2 border rounded-lg text-sm font-semibold transition-all h-16 flex flex-col items-center justify-center
-                                                            ${slot.available === false ? 'bg-gray-200 text-gray-500 cursor-not-allowed' :
-                                                            selectedTime === slot.time ? 'bg-blue-600 text-white border-blue-600 ring-2 ring-blue-500' :
-                                                            'bg-white hover:bg-blue-50 hover:border-blue-300'}`
-                                                        }
-                                                    >
-                                                        {slot.available === true ? (
-                                                            <span>{formatTime(slot.time)}</span>
-                                                        ) : (
-                                                            <span className="font-bold">{t.booked}</span>
-                                                        )}
-                                                    </button>
-                                                )) : <p className="col-span-full text-gray-500">{t.noSlots}</p>}
-                                            </div>
-                                        )}
-                                    </motion.div>
-                                )}
-                                
-                                {selectedTime && (
-                                    <div className="pt-4 pb-20 md:pb-0">
-                                        <motion.button
-                                            type="submit"
-                                            disabled={isLoading}
-                                            className="w-full py-3 mt-4 text-base font-bold text-white rounded-lg shadow-md bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all disabled:bg-blue-400"
-                                            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                                        >
-                                            {isLoading ? t.booking : t.confirmAppointment}
-                                        </motion.button>
-                                    </div>
-                                )}
+                                    {step >= 3 && selectedDate && (
+                                    <motion.div initial={{ opacity: 0, y:10 }} animate={{ opacity: 1, y:0 }}>
+                                            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3 flex items-center gap-2"><Clock size={18} className="text-blue-600"/><span>{t.step3}</span></h3>
+                                            {slotsLoading ? <p>{t.loadingSlots}</p> : (
+                                                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+                                                    {availableSlots.length > 0 ? availableSlots.map(slot => (
+                                                        <button
+                                                            key={slot.time}
+                                                            type="button"
+                                                            disabled={slot.available === false}
+                                                            onClick={() => slot.available === true && setSelectedTime(slot.time)}
+                                                            className={`p-2 border rounded-lg text-sm font-semibold transition-all h-16 flex flex-col items-center justify-center
+                                                                ${slot.available === false ? 'bg-gray-200 text-gray-500 cursor-not-allowed' :
+                                                                selectedTime === slot.time ? 'bg-blue-600 text-white border-blue-600 ring-2 ring-blue-500' :
+                                                                'bg-white hover:bg-blue-50 hover:border-blue-300'}`
+                                                            }
+                                                        >
+                                                            {slot.available === true ? (
+                                                                <span>{formatTime(slot.time)}</span>
+                                                            ) : (
+                                                                <span className="font-bold">{t.booked}</span>
+                                                            )}
+                                                        </button>
+                                                    )) : <p className="col-span-full text-gray-500">{t.noSlots}</p>}
+                                                </div>
+                                            )}
+                                        </motion.div>
+                                    )}
+                                    
+                                    {selectedTime && (
+                                        <div className="pt-4 pb-20 md:pb-0">
+                                            <motion.button
+                                                type="submit"
+                                                disabled={isLoading || isClosed}
+                                                className="w-full py-3 mt-4 text-base font-bold text-white rounded-lg shadow-md bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all disabled:bg-blue-400"
+                                                initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                                            >
+                                                {isLoading ? t.booking : t.confirmAppointment}
+                                            </motion.button>
+                                        </div>
+                                    )}
+                                </fieldset>
                             </form>
                         </div>
                     </motion.div>

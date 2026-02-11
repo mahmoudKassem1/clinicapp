@@ -1,28 +1,26 @@
 const mongoose = require('mongoose');
 const Appointment = require('../models/Appointment');
 
-// @desc    Get financial stats for doctors
+// @desc    Get financial stats for Lakany Pain Clinic
 // @route   GET /api/enterprise/finance-stats
-// @access  Private (Doctor, Management)
 exports.getDoctorStats = async (req, res, next) => {
     try {
-        const matchStage = {};
-        const { role, id } = req.user;
-        const { doctorId } = req.query; // Management can query by doctorId
+        const { role } = req.user;
+        const userId = req.user._id;
+        const { doctorId } = req.query;
 
+        let matchStage = {};
+
+        // 1. Define Access Logic
         if (role === 'doctor') {
-            // Doctors can only see their own stats
-            matchStage.doctorId = new mongoose.Types.ObjectId(id);
-        } else if (role === 'management' && doctorId) {
-            // Management can filter by a specific doctor
+            matchStage.doctorId = new mongoose.Types.ObjectId(userId);
+        } else if ((role === 'management' || role === 'admin') && doctorId) {
             matchStage.doctorId = new mongoose.Types.ObjectId(doctorId);
-        }
-        // If management and no doctorId is provided, it aggregates for all doctors
+        } 
 
+        // 2. Aggregate Data
         const stats = await Appointment.aggregate([
-            {
-                $match: matchStage
-            },
+            { $match: matchStage },
             {
                 $facet: {
                     totalRevenue: [
@@ -36,23 +34,53 @@ exports.getDoctorStats = async (req, res, next) => {
                         { $match: { status: 'completed' } },
                         {
                             $group: {
-                                _id: { year: { $year: '$date' }, month: { $month: '$date' } },
+                                _id: { 
+                                    year: { $year: '$date' }, 
+                                    month: { $month: '$date' } 
+                                },
                                 monthlyTotal: { $sum: '$price' },
                                 count: { $sum: 1 }
                             }
                         },
-                        { $sort: { '_id.year': 1, '_id.month': 1 } }
+                        { $sort: { '_id.year': -1, '_id.month': -1 } },
+                        { $limit: 12 }
+                    ],
+                    recentTransactions: [
+                        { $sort: { date: -1 } },
+                        { $limit: 10 },
+                        // 🔥 ADDED: Pull patient data from users collection
+                        {
+                            $lookup: {
+                                from: 'users', 
+                                localField: 'patientId',
+                                foreignField: '_id',
+                                as: 'patientInfo'
+                            }
+                        },
+                        {
+                            $project: {
+                                date: 1,
+                                price: 1,
+                                status: 1,
+                                // 🔥 Pull the username from the joined patientInfo array
+                                patientName: { $arrayElemAt: ['$patientInfo.username', 0] },
+                                doctorId: 1
+                            }
+                        }
                     ]
                 }
             }
         ]);
 
+        const statsData = stats[0];
+
         res.status(200).json({
             success: true,
             data: {
-                totalRevenue: stats[0].totalRevenue[0] ? stats[0].totalRevenue[0].total : 0,
-                appointmentCount: stats[0].appointmentCount,
-                monthlyBreakdown: stats[0].monthlyBreakdown
+                totalRevenue: statsData.totalRevenue[0]?.total || 0,
+                appointmentCount: statsData.appointmentCount,
+                monthlyBreakdown: statsData.monthlyBreakdown,
+                recentTransactions: statsData.recentTransactions
             }
         });
     } catch (err) {
